@@ -1,0 +1,26 @@
+FROM apache/airflow:2.8.1-python3.11
+
+USER root
+
+# Install Java 17 (required for PySpark)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        openjdk-17-jdk-headless \
+        procps \
+        curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+USER airflow
+
+# Install Python dependencies with compatible versions
+RUN pip install --no-cache-dir \
+    pyspark==3.4.0 \
+    delta-spark==2.4.0 \
+    boto3 \
+    pandas \
+    pyarrow \
+    s3fs
