@@ -1,4 +1,4 @@
-# # Data Lakehouse Pipeline — Medallion Architecture
+# Data Lakehouse Pipeline — Medallion Architecture
 
 A production data pipeline built on the real Olist Brazilian E-Commerce dataset (100K+ orders). Implements Bronze → Silver → Gold Medallion Architecture using PySpark, Delta Lake, Apache Airflow, and AWS S3.
 
@@ -51,15 +51,6 @@ start → bronze_ingestion → data_quality_check → silver_transformation → 
 - Retries: 2 with 5 minute delay
 - Quality gate blocks silver if bronze tables are missing
 
-## Screenshots
-
-### Airflow DAG — All Tasks Green
-![Airflow DAG](screenshots/airflow_dag.png)
-
-### AWS S3 — Bronze, Silver, Gold Layers
-![S3 Layers](screenshots/s3_layers.png)
-
-## Quick Start
 
 
 
