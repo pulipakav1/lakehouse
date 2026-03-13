@@ -55,9 +55,11 @@ start → bronze_ingestion → data_quality_check → silver_transformation → 
 
 
 # Open Airflow UI → http://localhost:8081
+
 # Login: admin / admin
+
 # Trigger: olist_lakehouse_pipeline
-```
+
 
 ## Project Structure
 
