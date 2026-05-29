@@ -23,4 +23,6 @@ RUN pip install --no-cache-dir \
     boto3 \
     pandas \
     pyarrow \
-    s3fs
+    s3fs \
+    great-expectations==0.18.12 \
+    pytest

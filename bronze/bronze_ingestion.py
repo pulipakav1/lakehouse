@@ -25,7 +25,6 @@ def ingest_to_bronze():
         logger.info(f"Ingesting {table_name} from {filename}")
 
         try:
-           
             df = (
                 spark.read
                 .option("header", "true")
@@ -43,11 +42,11 @@ def ingest_to_bronze():
                 .withColumn("_ingestion_date", F.current_date())
             )
 
-            # Write to S3 bronze 
             output_path = f"{BRONZE_PATH}/{table_name}"
             (
                 df.write
                 .format("parquet")
+                .partitionBy("_ingestion_date")
                 .mode("overwrite")
                 .save(output_path)
             )
@@ -61,7 +60,6 @@ def ingest_to_bronze():
 
     spark.stop()
 
-    # Summary
     total_rows = sum(results.values())
     logger.info(f"Bronze ingestion complete — {len(results)} tables, {total_rows:,} total rows")
     for table, count in results.items():

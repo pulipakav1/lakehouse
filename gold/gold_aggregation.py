@@ -5,21 +5,22 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 from utils.config import (
     create_spark_session, get_logger,
-    SILVER_PATH, GOLD_PATH
+    SILVER_PATH, GOLD_PATH,
+    RFM_CHAMPION_RECENCY, RFM_CHAMPION_FREQUENCY, RFM_CHAMPION_MONETARY,
+    RFM_LOYAL_RECENCY, RFM_LOYAL_FREQUENCY,
+    RFM_NEW_RECENCY, RFM_LOST_RECENCY,
 )
 
 logger = get_logger("gold")
 
 
 def build_sales_summary(spark):
-    """Daily and monthly revenue, order volume, avg order value."""
     logger.info("Building gold_sales_summary")
 
     orders   = spark.read.format("delta").load(f"{SILVER_PATH}/orders")
     payments = spark.read.format("delta").load(f"{SILVER_PATH}/order_payments")
     items    = spark.read.format("delta").load(f"{SILVER_PATH}/order_items")
 
-    # Join orders + payments
     order_payments = (
         payments
         .groupBy("order_id")
@@ -42,8 +43,8 @@ def build_sales_summary(spark):
     df = (
         orders
         .filter(F.col("order_status") == "delivered")
-        .join(order_payments,   on="order_id", how="left")
-        .join(order_items_agg,  on="order_id", how="left")
+        .join(order_payments,  on="order_id", how="left")
+        .join(order_items_agg, on="order_id", how="left")
         .groupBy("order_year", "order_month",
                  F.to_date("order_purchase_timestamp").alias("order_date"))
         .agg(
@@ -68,7 +69,6 @@ def build_sales_summary(spark):
 
 
 def build_product_performance(spark):
-    """Revenue, volume, avg rating per product and category."""
     logger.info("Building gold_product_performance")
 
     items    = spark.read.format("delta").load(f"{SILVER_PATH}/order_items")
@@ -76,7 +76,6 @@ def build_product_performance(spark):
     orders   = spark.read.format("delta").load(f"{SILVER_PATH}/orders")
     reviews  = spark.read.format("delta").load(f"{SILVER_PATH}/order_reviews")
 
-    # Delivered orders only
     delivered = orders.filter(F.col("order_status") == "delivered").select("order_id")
 
     avg_reviews = (
@@ -87,9 +86,9 @@ def build_product_performance(spark):
 
     df = (
         items
-        .join(delivered,    on="order_id",   how="inner")
-        .join(products,     on="product_id", how="left")
-        .join(avg_reviews,  on="order_id",   how="left")
+        .join(delivered,   on="order_id",   how="inner")
+        .join(products,    on="product_id", how="left")
+        .join(avg_reviews, on="order_id",   how="left")
         .groupBy("product_id", "category")
         .agg(
             F.count("order_id").alias("total_orders"),
@@ -115,11 +114,10 @@ def build_product_performance(spark):
 
 
 def build_customer_segments(spark):
-    """RFM-style customer segmentation — Recency, Frequency, Monetary."""
     logger.info("Building gold_customer_segments")
 
-    orders   = spark.read.format("delta").load(f"{SILVER_PATH}/orders")
-    payments = spark.read.format("delta").load(f"{SILVER_PATH}/order_payments")
+    orders    = spark.read.format("delta").load(f"{SILVER_PATH}/orders")
+    payments  = spark.read.format("delta").load(f"{SILVER_PATH}/order_payments")
     customers = spark.read.format("delta").load(f"{SILVER_PATH}/customers")
 
     max_date = orders.agg(F.max("order_purchase_timestamp")).collect()[0][0]
@@ -143,23 +141,22 @@ def build_customer_segments(spark):
         )
     )
 
-    # Simple segmentation based on thresholds
     df = (
         rfm
         .join(customers, on="customer_id", how="left")
         .withColumn("segment",
             F.when(
-                (F.col("recency_days") <= 90) &
-                (F.col("frequency") >= 2) &
-                (F.col("monetary") >= 500), "Champion"
+                (F.col("recency_days") <= RFM_CHAMPION_RECENCY) &
+                (F.col("frequency") >= RFM_CHAMPION_FREQUENCY) &
+                (F.col("monetary") >= RFM_CHAMPION_MONETARY), "Champion"
             ).when(
-                (F.col("recency_days") <= 180) &
-                (F.col("frequency") >= 2), "Loyal"
+                (F.col("recency_days") <= RFM_LOYAL_RECENCY) &
+                (F.col("frequency") >= RFM_LOYAL_FREQUENCY), "Loyal"
             ).when(
-                (F.col("recency_days") <= 90) &
+                (F.col("recency_days") <= RFM_NEW_RECENCY) &
                 (F.col("frequency") == 1), "New Customer"
             ).when(
-                F.col("recency_days") > 365, "Lost"
+                F.col("recency_days") > RFM_LOST_RECENCY, "Lost"
             ).otherwise("At Risk")
         )
         .withColumn("monetary", F.round("monetary", 2))
@@ -173,7 +170,6 @@ def build_customer_segments(spark):
 
 
 def build_seller_performance(spark):
-    """Seller scorecard — revenue, delivery speed, ratings."""
     logger.info("Building gold_seller_performance")
 
     items   = spark.read.format("delta").load(f"{SILVER_PATH}/order_items")
@@ -205,8 +201,8 @@ def build_seller_performance(spark):
         .join(sellers, on="seller_id", how="left")
         .withColumn("late_rate",
                     F.round(F.col("late_orders") / F.col("total_orders") * 100, 2))
-        .withColumn("total_revenue", F.round("total_revenue", 2))
-        .withColumn("avg_review_score", F.round("avg_review_score", 2))
+        .withColumn("total_revenue",     F.round("total_revenue", 2))
+        .withColumn("avg_review_score",  F.round("avg_review_score", 2))
         .orderBy(F.desc("total_revenue"))
     )
 
@@ -214,8 +210,6 @@ def build_seller_performance(spark):
     logger.info(f"Seller performance: {count:,} rows")
     return df
 
-
-# gold
 
 def write_gold(df, table_name: str):
     output_path = f"{GOLD_PATH}/{table_name}"
@@ -228,7 +222,6 @@ def write_gold(df, table_name: str):
     logger.info(f"✓ Written to Gold: {output_path}")
 
 
-# main
 def run_gold():
     logger.info("Starting Gold aggregation layer")
     spark = create_spark_session("OlistGoldAggregation")
